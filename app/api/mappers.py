@@ -1,10 +1,15 @@
+import json
 import time
 import uuid
+from collections.abc import Iterator
 
 from app.api.schemas import (
     ChatCompletionChoice,
+    ChatCompletionDelta,
     ChatCompletionRequest,
     ChatCompletionResponse,
+    ChatCompletionStreamChoice,
+    ChatCompletionStreamResponse,
     ChatMessage,
     UsageInfo,
 )
@@ -47,3 +52,54 @@ def build_chat_completion_response(
         choices=[choice],
         usage=usage,
     )
+
+def build_native_streaming_chunks(
+    text_stream: Iterator[str],
+    response_model: str,
+) -> Iterator[str]:
+    response_id = f"chatcmpl-{uuid.uuid4().hex}"
+    created = int(time.time())
+
+    first_chunk = ChatCompletionStreamResponse(
+        id=response_id,
+        created=created,
+        model=response_model,
+        choices=[
+            ChatCompletionStreamChoice(
+                index=0,
+                delta=ChatCompletionDelta(role="assistant", content=""),
+                finish_reason=None,
+            )
+        ],
+    )
+    yield f"data: {first_chunk.model_dump_json()}\n\n"
+
+    for piece in text_stream:
+        chunk = ChatCompletionStreamResponse(
+            id=response_id,
+            created=created,
+            model=response_model,
+            choices=[
+                ChatCompletionStreamChoice(
+                    index=0,
+                    delta=ChatCompletionDelta(content=piece),
+                    finish_reason=None,
+                )
+            ],
+        )
+        yield f"data: {chunk.model_dump_json()}\n\n"
+
+    final_chunk = ChatCompletionStreamResponse(
+        id=response_id,
+        created=created,
+        model=response_model,
+        choices=[
+            ChatCompletionStreamChoice(
+                index=0,
+                delta=ChatCompletionDelta(),
+                finish_reason="stop",
+            )
+        ],
+    )
+    yield f"data: {final_chunk.model_dump_json()}\n\n"
+    yield "data: [DONE]\n\n"
