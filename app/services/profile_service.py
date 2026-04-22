@@ -188,8 +188,12 @@ class ProfileService:
             assumptions.append("Input tokens per request defaulted to 500.")
 
         if profile.expected_output_tokens is None:
-            profile.expected_output_tokens = 200
-            assumptions.append("Output tokens per request defaulted to 200.")
+            if profile.task_type == "embeddings":
+                profile.expected_output_tokens = 0
+                assumptions.append("Output tokens per request set to 0 for embeddings use case.")
+            else:
+                profile.expected_output_tokens = 200
+                assumptions.append("Output tokens per request defaulted to 200.")
 
         if profile.input_modality == "unknown":
             profile.input_modality = "text"
