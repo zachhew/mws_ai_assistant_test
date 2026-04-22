@@ -21,22 +21,24 @@ class CostEstimator:
         return estimates
 
     def estimate_for_model(
-        self,
-        profile: UserCaseProfile,
-        entry: CatalogEntry,
+            self,
+            profile: UserCaseProfile,
+            entry: CatalogEntry,
     ) -> CostEstimate | None:
         if entry.pricing is None:
             return None
 
         requests_per_month = self._resolve_requests_per_month(profile)
         input_tokens = self._resolve_input_tokens(profile)
-        output_tokens = self._resolve_output_tokens(profile)
+
+        is_embedding = entry.model.is_embedding_model or profile.task_type == "embeddings"
+        output_tokens = 0 if is_embedding else self._resolve_output_tokens(profile)
 
         monthly_input_tokens = requests_per_month * input_tokens
         monthly_output_tokens = requests_per_month * output_tokens
 
         input_price = entry.pricing.input_price_per_1k_tokens_rub or 0.0
-        output_price = entry.pricing.output_price_per_1k_tokens_rub or 0.0
+        output_price = 0.0 if is_embedding else (entry.pricing.output_price_per_1k_tokens_rub or 0.0)
 
         monthly_input_cost = (monthly_input_tokens / 1000) * input_price
         monthly_output_cost = (monthly_output_tokens / 1000) * output_price
