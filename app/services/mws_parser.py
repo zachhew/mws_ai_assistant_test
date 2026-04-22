@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
 
 from bs4 import BeautifulSoup
 
@@ -10,89 +9,39 @@ from app.domain.catalog import ModelSpec, PricingSpec
 
 
 class MWSParser:
+    _MODEL_NAMES: tuple[str, ...] = (
+        "deepseek-r1-distill-qwen-32b",
+        "gemma-3-27b-it",
+        "llama-3.3-70b-instruct",
+        "qwen3-32b",
+        "qwen3-235b-instruct",
+        "qwen3-coder-480b-a35b",
+        "glm-4.6-357b",
+        "kimi-k2-instruct",
+        "bge-multilingual-gemma2",
+        "bge-m3",
+    )
+
     def parse_models_page(self, html: str, source_url: str) -> list[ModelSpec]:
         text = self._normalize_text(html)
-
-        patterns = [
-            (
-                r"(deepseek-r1-distill-qwen-32b)\s+.*?`Text\s+``Text\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text"],
-                ["text"],
-                False,
-            ),
-            (
-                r"(gemma-3-27b-it)\s+.*?`Text`,\s*`Image\s+``Text\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text", "image"],
-                ["text"],
-                False,
-            ),
-            (
-                r"(llama-3\.3-70b-instruct)\s+.*?`Text\s+``Text\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text"],
-                ["text"],
-                False,
-            ),
-            (
-                r"(qwen3-32b)\s+.*?`Text\s+``Text\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text"],
-                ["text"],
-                False,
-            ),
-            (
-                r"(qwen3-235b-instruct)\s+.*?`Text\s+``Text\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text"],
-                ["text"],
-                False,
-            ),
-            (
-                r"(qwen3-coder-480b-a35b)\s+.*?`Text\s+``Text\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text"],
-                ["text"],
-                False,
-            ),
-            (
-                r"(glm-4\.6-357b)\s+.*?`Text\s+``Text\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text"],
-                ["text"],
-                False,
-            ),
-            (
-                r"(kimi-k2-instruct)\s+.*?`Text`,\s*`Image\s+``Text\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text", "image"],
-                ["text"],
-                False,
-            ),
-            (
-                r"(bge-multilingual-gemma2)\s+.*?`Text\s+``Embedding\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text"],
-                ["embedding"],
-                True,
-            ),
-            (
-                r"(bge-m3)\s+.*?`Text\s+``Embedding\s+`(\d+)\s+(\d+(?:\.\d+)?)",
-                ["text"],
-                ["embedding"],
-                True,
-            ),
-        ]
-
         models: list[ModelSpec] = []
-        for pattern, input_modalities, output_modalities, is_embedding in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
-            if not match:
+
+        for name in self._MODEL_NAMES:
+            row = self._extract_model_row(text, name)
+            if row is None:
                 continue
 
-            name = match.group(1)
-            context_k = int(match.group(2))
-            size_label = match.group(3)
+            input_modalities, output_modalities = self._extract_modalities(row)
+            context_window_tokens, model_size_label = self._extract_model_numbers(row)
+            is_embedding = "embedding" in [item.lower() for item in output_modalities]
 
             models.append(
                 ModelSpec(
                     name=name,
                     input_modalities=input_modalities,
                     output_modalities=output_modalities,
-                    context_window_tokens=context_k * 1000,
-                    model_size_label=size_label,
+                    context_window_tokens=context_window_tokens,
+                    model_size_label=model_size_label,
                     family=self._infer_family(name),
                     supports_text_input="text" in input_modalities,
                     supports_image_input="image" in input_modalities,
@@ -109,37 +58,31 @@ class MWSParser:
 
     def parse_pricing_page(self, html: str, source_url: str) -> list[PricingSpec]:
         text = self._normalize_text(html)
-
-        patterns = [
-            r"(deepseek-r1-distill-qwen-32b)\s+([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*(\d+)",
-            r"(gemma-3-27b-it)\s+([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*(\d+)",
-            r"(llama-3\.3-70b-instruct)\s+([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*(\d+)",
-            r"(qwen3-32b)\s+([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*(\d+)",
-            r"(qwen3-235b-instruct)\s+([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*(\d+)",
-            r"(qwen3-coder-480b-a35b)\s+([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*(\d+)",
-            r"(glm-4\.6-357b)\s+([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*(\d+)",
-            r"(kimi-k2-instruct)\s+([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*([\d,]+)\s*₽\s*(\d+)",
-            r"(bge-multilingual-gemma2)\s+([\d,]+)\s*₽\s*[–-]\s*([\d,]+)\s*₽\s*[–-]\s*(\d+)",
-            r"(bge-m3)\s+([\d,]+)\s*₽\s*[–-]\s*([\d,]+)\s*₽\s*[–-]\s*(\d+)",
-        ]
-
         prices: list[PricingSpec] = []
 
-        for pattern in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
-            if not match:
+        for name in self._MODEL_NAMES:
+            row = self._extract_pricing_row(text, name)
+            if row is None:
                 continue
 
-            name = match.group(1)
+            price_values = re.findall(r"(\d+(?:,\d+)?)\s*₽", row)
+            billing_match = re.search(r"(\d+)\s*$", row)
+
+            if billing_match is None:
+                continue
+
+            billing_unit_tokens = int(billing_match.group(1))
 
             if name in {"bge-multilingual-gemma2", "bge-m3"}:
-                input_price = self._parse_decimal(match.group(4))
+                if len(price_values) < 2:
+                    continue
+                input_price = self._parse_decimal(price_values[-1])
                 output_price = None
-                billing_unit_tokens = int(match.group(5))
             else:
-                input_price = self._parse_decimal(match.group(4))
-                output_price = self._parse_decimal(match.group(5))
-                billing_unit_tokens = int(match.group(6))
+                if len(price_values) < 4:
+                    continue
+                input_price = self._parse_decimal(price_values[-2])
+                output_price = self._parse_decimal(price_values[-1])
 
             prices.append(
                 PricingSpec(
@@ -156,6 +99,48 @@ class MWSParser:
 
         return prices
 
+    def _extract_model_row(self, text: str, name: str) -> str | None:
+        pattern = rf"{re.escape(name)}(.*?)(?={'|'.join(re.escape(item) for item in self._MODEL_NAMES if item != name)}|В таблице:|Последнее обновление:|$)"
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            return None
+        return f"{name} {match.group(1)}".strip()
+
+    def _extract_pricing_row(self, text: str, name: str) -> str | None:
+        pattern = rf"{re.escape(name)}(.*?)(?={'|'.join(re.escape(item) for item in self._MODEL_NAMES if item != name)}|Последнее обновление:|$)"
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            return None
+        return f"{name} {match.group(1)}".strip()
+
+    def _extract_modalities(self, row: str) -> tuple[list[str], list[str]]:
+        lowered = row.lower()
+
+        input_modalities: list[str] = []
+        if "text" in lowered:
+            input_modalities.append("text")
+        if "image" in lowered:
+            input_modalities.append("image")
+
+        output_modalities: list[str]
+        if "embedding" in lowered:
+            output_modalities = ["embedding"]
+        else:
+            output_modalities = ["text"]
+
+        return input_modalities, output_modalities
+
+    def _extract_model_numbers(self, row: str) -> tuple[int | None, str | None]:
+        number_matches = re.findall(r"(\d+(?:\.\d+)?)", row)
+        if len(number_matches) < 2:
+            return None, None
+
+        context_k = number_matches[-2]
+        size_label = number_matches[-1]
+
+        context_window_tokens = int(float(context_k) * 1000)
+        return context_window_tokens, size_label
+
     def _normalize_text(self, html: str) -> str:
         soup = BeautifulSoup(html, "lxml")
         text = soup.get_text(separator=" ", strip=True)
@@ -166,7 +151,7 @@ class MWSParser:
 
     def _infer_family(self, name: str) -> str:
         lowered = name.lower()
-        families: Iterable[tuple[str, str]] = (
+        families = (
             ("deepseek", "deepseek"),
             ("gemma", "gemma"),
             ("llama", "llama"),

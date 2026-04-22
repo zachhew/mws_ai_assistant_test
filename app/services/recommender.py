@@ -13,7 +13,7 @@ class ModelRecommender:
         cost_estimates: list[CostEstimate],
     ) -> list[RecommendationCandidate]:
         estimates_by_name = {estimate.model_name: estimate for estimate in cost_estimates}
-        filtered = self._filter_candidates(profile, catalog)
+        filtered = self.filter_catalog(profile, catalog)
 
         candidates: list[RecommendationCandidate] = []
         for entry in filtered:
@@ -22,10 +22,11 @@ class ModelRecommender:
             candidate = self._build_candidate(profile, entry, score, estimate)
             candidates.append(candidate)
 
+        candidates = self._prioritize_by_budget(candidates)
         candidates.sort(key=lambda item: item.score, reverse=True)
         return self._assign_fit_labels(candidates[:3])
 
-    def _filter_candidates(
+    def filter_catalog(
         self,
         profile: UserCaseProfile,
         catalog: list[CatalogEntry],
@@ -48,6 +49,26 @@ class ModelRecommender:
             result.append(entry)
 
         return result
+
+    def _prioritize_by_budget(
+        self,
+        candidates: list[RecommendationCandidate],
+    ) -> list[RecommendationCandidate]:
+        within_budget = [
+            candidate
+            for candidate in candidates
+            if candidate.cost_estimate is not None and candidate.cost_estimate.within_budget is True
+        ]
+        over_budget = [
+            candidate
+            for candidate in candidates
+            if candidate.cost_estimate is None or candidate.cost_estimate.within_budget is not True
+        ]
+
+        if within_budget:
+            return within_budget + over_budget
+
+        return candidates
 
     def _score_candidate(
         self,
@@ -75,17 +96,21 @@ class ModelRecommender:
 
         if cost_estimate is not None:
             if cost_estimate.within_budget is True:
-                score += 20
+                score += 35
             elif cost_estimate.within_budget is False:
-                score -= 15
+                score -= 30
 
             total_cost = cost_estimate.total_monthly_cost_rub
             if total_cost <= 1000:
-                score += 15
+                score += 20
             elif total_cost <= 5000:
+                score += 15
+            elif total_cost <= 12000:
                 score += 10
-            elif total_cost <= 15000:
-                score += 5
+            elif total_cost <= 30000:
+                score += 0
+            else:
+                score -= 10
 
         if profile.quality_priority == "high":
             if model.family in {"qwen", "llama", "kimi", "glm"}:
@@ -119,8 +144,6 @@ class ModelRecommender:
 
         if entry.pricing is None:
             risks.append("Pricing data unavailable.")
-        if entry.model.is_embedding_model and profile.task_type != "embeddings":
-            risks.append("Embedding model may not fit generative scenario.")
 
         fit_summary = self._build_fit_summary(profile, entry, cost_estimate)
 
@@ -166,5 +189,9 @@ class ModelRecommender:
             parts.append(
                 f"estimated monthly cost is {cost_estimate.total_monthly_cost_rub:.2f} RUB"
             )
+            if cost_estimate.within_budget is True:
+                parts.append("fits the stated budget")
+            elif cost_estimate.within_budget is False:
+                parts.append("exceeds the stated budget")
 
         return ", ".join(parts) + "."
