@@ -8,6 +8,7 @@ from app.agent.session_manager import SessionManager
 from app.core.config import Settings, get_settings
 from app.services.catalog_service import CatalogService
 from app.services.estimator import CostEstimator
+from app.services.final_answer_streaming_service import FinalAnswerStreamingService
 from app.services.mws_client import MWSClient
 from app.services.mws_parser import MWSParser
 from app.services.profile_service import ProfileService
@@ -81,3 +82,7 @@ def get_chat_completions_coordinator() -> ChatCompletionsCoordinator:
     return ChatCompletionsCoordinator(
         adk_runtime=get_adk_runtime_service(),
     )
+
+@lru_cache(maxsize=1)
+def get_final_answer_streaming_service() -> FinalAnswerStreamingService:
+    return FinalAnswerStreamingService()
