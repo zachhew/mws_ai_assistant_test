@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from openai import OpenAI
+from collections.abc import Iterator
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -102,3 +103,39 @@ class OpenRouterClient:
         content = response.choices[0].message.content or ""
         self._logger.info("OpenRouter explanation generation completed.")
         return content.strip()
+
+    def stream_explanation(self, prompt: str) -> Iterator[str]:
+        stream = self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты — технический AI-ассистент. "
+                        "Отвечай только на русском языке. "
+                        "Пиши ясно, кратко и по делу. "
+                        "Не выдумывай факты и не противоречь входным данным. "
+                        "Не используй LaTeX, markdown-математику или специальные математические обозначения. "
+                        "Не используй искусственные метки вроде 'модель 1', 'модель 2', 'оценка 95.0'. "
+                        "Названия моделей не переводи. "
+                        "Если подходящие модели укладываются в бюджет, не советуй увеличивать бюджет без необходимости. "
+                        "Если ни одна модель не укладывается в бюджет, скажи это прямо и предложи ближайшие технические варианты. "
+                        "Финальная рекомендация должна быть конкретной и соответствовать расчетам."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            stream=True,
+            extra_headers={
+                "HTTP-Referer": self._http_referer,
+                "X-Title": self._app_title,
+            },
+        )
+
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta and getattr(delta, "content", None):
+                yield delta.content
