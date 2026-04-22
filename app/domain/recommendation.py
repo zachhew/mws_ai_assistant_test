@@ -49,3 +49,4 @@ class RecommendationReport(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
 
     final_summary: str
+    final_answer_text: str | None = None

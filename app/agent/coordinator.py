@@ -52,8 +52,7 @@ class ChatCompletionsCoordinator:
         recommendations = self._recommender.recommend(profile, filtered_catalog, costs)
         report = self._report_builder.build(profile, recommendations, costs)
 
-        llm_summary = self._explanation_service.generate_summary(report)
-        report.final_summary = llm_summary
+        report.final_answer_text = self._explanation_service.generate_final_answer(report)
 
         self._session_manager.save_artifacts(
             session_id=session_id,
@@ -82,7 +81,7 @@ class ChatCompletionsCoordinator:
         ]
         return self._session_manager.update_messages(session_id, messages)
 
-    def _build_profile(self, state: SessionState) -> RecommendationReport | object:
+    def _build_profile(self, state: SessionState):
         from app.api.schemas import ChatMessage
 
         messages = [
