@@ -12,7 +12,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = Field(default="mws-ai-assistant", alias="APP_NAME")
+    app_name: str = Field(default="ai-model-selection-assistant", alias="APP_NAME")
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8000, alias="APP_PORT")
     app_env: str = Field(default="dev", alias="APP_ENV")
@@ -37,6 +37,16 @@ class Settings(BaseSettings):
         alias="GOOGLE_GENAI_USE_VERTEXAI",
     )
     adk_agent_model: str = Field(default="gemini-2.0-flash", alias="ADK_AGENT_MODEL")
+
+    openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        alias="OPENROUTER_BASE_URL",
+    )
+    openrouter_model: str = Field(
+        default="openai/gpt-4o-mini",
+        alias="OPENROUTER_MODEL",
+    )
 
     default_session_ttl_minutes: int = Field(
         default=60,
