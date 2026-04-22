@@ -7,6 +7,7 @@ from app.agent.session_manager import SessionManager
 from app.core.config import get_settings
 from app.services.catalog_service import CatalogService
 from app.services.estimator import CostEstimator
+from app.services.explanation_service import ExplanationService
 from app.services.mws_client import MWSClient
 from app.services.mws_parser import MWSParser
 from app.services.profile_service import ProfileService
@@ -62,7 +63,13 @@ def get_report_builder() -> ReportBuilder:
 
 
 @lru_cache(maxsize=1)
+def get_explanation_service() -> ExplanationService:
+    return ExplanationService()
+
+
+@lru_cache(maxsize=1)
 def get_chat_completions_coordinator() -> ChatCompletionsCoordinator:
+    settings = get_settings()
     return ChatCompletionsCoordinator(
         session_manager=get_session_manager(),
         profile_service=get_profile_service(),
@@ -70,4 +77,6 @@ def get_chat_completions_coordinator() -> ChatCompletionsCoordinator:
         estimator=get_cost_estimator(),
         recommender=get_model_recommender(),
         report_builder=get_report_builder(),
+        explanation_service=get_explanation_service(),
+        agent_model=settings.adk_agent_model,
     )
