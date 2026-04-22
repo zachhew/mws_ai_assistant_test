@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from app.agent.adk_runtime import AdkRuntimeService
 from app.agent.coordinator import ChatCompletionsCoordinator
 from app.agent.session_manager import SessionManager
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.services.catalog_service import CatalogService
 from app.services.estimator import CostEstimator
-from app.services.explanation_service import ExplanationService
 from app.services.mws_client import MWSClient
 from app.services.mws_parser import MWSParser
 from app.services.profile_service import ProfileService
@@ -63,20 +63,21 @@ def get_report_builder() -> ReportBuilder:
 
 
 @lru_cache(maxsize=1)
-def get_explanation_service() -> ExplanationService:
-    return ExplanationService()
-
-
-@lru_cache(maxsize=1)
-def get_chat_completions_coordinator() -> ChatCompletionsCoordinator:
-    settings = get_settings()
-    return ChatCompletionsCoordinator(
+def get_adk_runtime_service() -> AdkRuntimeService:
+    settings: Settings = get_settings()
+    return AdkRuntimeService(
+        settings=settings,
         session_manager=get_session_manager(),
         profile_service=get_profile_service(),
         catalog_service=get_catalog_service(),
         estimator=get_cost_estimator(),
         recommender=get_model_recommender(),
         report_builder=get_report_builder(),
-        explanation_service=get_explanation_service(),
-        agent_model=settings.adk_agent_model,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_chat_completions_coordinator() -> ChatCompletionsCoordinator:
+    return ChatCompletionsCoordinator(
+        adk_runtime=get_adk_runtime_service(),
     )
