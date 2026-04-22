@@ -53,6 +53,7 @@ def build_chat_completion_response(
         usage=usage,
     )
 
+
 def build_native_streaming_chunks(
     text_stream: Iterator[str],
     response_model: str,

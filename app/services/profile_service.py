@@ -121,7 +121,10 @@ class ProfileService:
         )
 
         quality_priority = "balanced"
-        if any(word in lowered for word in ["high quality", "best quality", "максимальн", "высокое качество"]):
+        if any(
+            word in lowered
+            for word in ["high quality", "best quality", "максимальн", "высокое качество"]
+        ):
             quality_priority = "high"
         elif any(word in lowered for word in ["cheap", "дешев", "минимальный бюджет"]):
             quality_priority = "low"

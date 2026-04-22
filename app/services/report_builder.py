@@ -40,9 +40,7 @@ class ReportBuilder:
                 "Стоимость рассчитана как агрегированная месячная оценка по объему токенов."
             )
 
-        has_billing_units = any(
-            cost.assumptions for cost in costs
-        )
+        has_billing_units = any(cost.assumptions for cost in costs)
         if has_billing_units:
             assumptions.append(
                 "Расчет не моделирует накопление токенов по каждой отдельной единице биллинга."
@@ -91,9 +89,7 @@ class ReportBuilder:
 
         best = recommendations[0]
         best_cost = best.cost_estimate.total_monthly_cost_rub if best.cost_estimate else None
-        within_budget = (
-            best.cost_estimate is not None and best.cost_estimate.within_budget is True
-        )
+        within_budget = best.cost_estimate is not None and best.cost_estimate.within_budget is True
 
         if within_budget:
             if best_cost is not None:

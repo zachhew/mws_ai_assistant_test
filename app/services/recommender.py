@@ -85,7 +85,10 @@ class ModelRecommender:
             score += 25
         if profile.task_type == "embeddings" and model.is_embedding_model:
             score += 30
-        if profile.task_type in {"chat", "reasoning", "coding", "multimodal"} and not model.is_embedding_model:
+        if (
+            profile.task_type in {"chat", "reasoning", "coding", "multimodal"}
+            and not model.is_embedding_model
+        ):
             score += 15
 
         if model.context_window_tokens:

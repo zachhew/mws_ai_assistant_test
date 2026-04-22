@@ -83,6 +83,7 @@ def get_chat_completions_coordinator() -> ChatCompletionsCoordinator:
         adk_runtime=get_adk_runtime_service(),
     )
 
+
 @lru_cache(maxsize=1)
 def get_final_answer_streaming_service() -> FinalAnswerStreamingService:
     return FinalAnswerStreamingService()
