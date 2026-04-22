@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     or_site_url: str = Field(default="http://localhost:8000", alias="OR_SITE_URL")
     or_app_name: str = Field(default="mws-ai-assistant-test", alias="OR_APP_NAME")
 
+    openrouter_http_referer: str = Field(
+        default="http://localhost:8000",
+        alias="OPENROUTER_HTTP_REFERER",
+    )
+    openrouter_app_title: str = Field(
+        default="mws-ai-assistant-test",
+        alias="OPENROUTER_APP_TITLE",
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
