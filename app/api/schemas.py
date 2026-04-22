@@ -38,3 +38,22 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[ChatCompletionChoice]
     usage: UsageInfo
+
+
+class ChatCompletionDelta(BaseModel):
+    role: MessageRole | None = None
+    content: str | None = None
+
+
+class ChatCompletionStreamChoice(BaseModel):
+    index: int
+    delta: ChatCompletionDelta
+    finish_reason: str | None = None
+
+
+class ChatCompletionStreamResponse(BaseModel):
+    id: str
+    object: str = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: list[ChatCompletionStreamChoice]
