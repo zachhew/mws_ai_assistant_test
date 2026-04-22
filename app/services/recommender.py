@@ -112,9 +112,8 @@ class ModelRecommender:
             else:
                 score -= 10
 
-        if profile.quality_priority == "high":
-            if model.family in {"qwen", "llama", "kimi", "glm"}:
-                score += 10
+        if profile.quality_priority == "high" and model.family in {"qwen", "llama", "kimi", "glm"}:
+            score += 10
 
         if profile.task_type == "coding" and "coder" in model.name.lower():
             score += 15
@@ -164,13 +163,18 @@ class ModelRecommender:
         if not candidates:
             return candidates
 
+        has_in_budget = any(
+            candidate.cost_estimate is not None and candidate.cost_estimate.within_budget is True
+            for candidate in candidates
+        )
+
         candidates[0].fit_label = "best_fit"
 
         if len(candidates) > 1:
-            candidates[1].fit_label = "budget_option"
+            candidates[1].fit_label = "budget_option" if has_in_budget else "alternative"
 
         if len(candidates) > 2:
-            candidates[2].fit_label = "premium_option"
+            candidates[2].fit_label = "premium_option" if has_in_budget else "alternative"
 
         return candidates
 
