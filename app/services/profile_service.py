@@ -41,7 +41,6 @@ class ProfileService:
         if self._llm_client is not None:
             try:
                 data = self._llm_client.extract_profile(text)
-                self._logger.info("Raw profile extracted via OpenRouter: %s", data)
                 profile = UserCaseProfile(**data)
                 self._logger.info("Profile extracted via OpenRouter.")
                 return profile
