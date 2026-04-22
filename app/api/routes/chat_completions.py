@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.mappers import (
-    build_chat_completion_response,
-    extract_session_id,
-)
+from app.api.mappers import build_chat_completion_response, extract_session_id
 from app.api.schemas import ChatCompletionRequest, ChatCompletionResponse
 from app.agent.coordinator import ChatCompletionsCoordinator
 from app.core.config import Settings, get_settings
@@ -25,9 +22,9 @@ async def create_chat_completion(
     settings: Settings = Depends(get_settings),
 ) -> ChatCompletionResponse:
     session_id = extract_session_id(request)
-    report = coordinator.handle(request=request, session_id=session_id)
+    report = await coordinator.handle(request=request, session_id=session_id)
 
-    response_model = request.model or settings.adk_agent_model
+    response_model = request.model or settings.adk_litellm_model
     return build_chat_completion_response(
         request=request,
         report=report,
