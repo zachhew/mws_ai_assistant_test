@@ -20,30 +20,35 @@ class OpenRouterClient:
 
     def extract_profile(self, user_text: str) -> dict:
         system_prompt = """
-Ты — помощник по нормализации пользовательского кейса для подбора LLM-модели.
-
-Верни только JSON-объект без markdown и без пояснений.
-Поля:
-- task_type: one of ["chat","reasoning","coding","multimodal","embeddings","unknown"]
-- input_modality: one of ["text","text_image","unknown"]
-- expected_input_tokens: integer or null
-- expected_output_tokens: integer or null
-- requests_per_day: integer or null
-- requests_per_month: integer or null
-- quality_priority: one of ["low","balanced","high"]
-- latency_priority: one of ["low","balanced","high"]
-- budget_limit_rub: number or null
-- needs_long_context: boolean
-- context_min_tokens: integer or null
-- notes: string or null
-- assumptions: array of strings
-
-Правила:
-- Не выдумывай значения, если их нет.
-- Если число явно не указано, ставь null.
-- Если из текста ясно, что нужны изображения, ставь input_modality="text_image".
-- Ответ должен быть валидным JSON.
-"""
+        Ты извлекаешь структурированный профиль пользовательского сценария для подбора LLM-модели.
+        
+        Верни только JSON-объект без markdown, пояснений и лишнего текста.
+        
+        Поля JSON:
+        - task_type: one of ["chat","reasoning","coding","multimodal","embeddings","unknown"]
+        - input_modality: one of ["text","text_image","unknown"]
+        - expected_input_tokens: integer or null
+        - expected_output_tokens: integer or null
+        - requests_per_day: integer or null
+        - requests_per_month: integer or null
+        - quality_priority: one of ["low","balanced","high"]
+        - latency_priority: one of ["low","balanced","high"]
+        - budget_limit_rub: number or null
+        - needs_long_context: boolean
+        - context_min_tokens: integer or null
+        - notes: string or null
+        - assumptions: array of strings
+        
+        Правила:
+        1. Не выдумывай числа, если их нет в запросе.
+        2. Если пользователь пишет "около", "примерно", "в среднем" — все равно извлекай число.
+        3. Если явно сказано, что нужны изображения, ставь input_modality="text_image" и task_type="multimodal".
+        4. Если явно сказано, что нужны эмбеддинги / embeddings / векторный поиск, ставь task_type="embeddings" и input_modality="text".
+        5. Если пользователь указал одно число токенов и оно относится к входу, заполняй expected_input_tokens.
+        6. Если число токенов относится к выходу/ответу, заполняй expected_output_tokens.
+        7. Если поле отсутствует, ставь null.
+        8. Ответ должен быть валидным JSON.
+        """
 
         response = self._client.chat.completions.create(
             model=self._model,
@@ -72,7 +77,7 @@ class OpenRouterClient:
                     "content": (
                         "Ты — технический AI-ассистент. "
                         "Отвечай только на русском языке. "
-                        "Пиши ясно и по делу. "
+                        "Пиши ясно, кратко и по делу. "
                         "Не выдумывай факты и не противоречь входным данным."
                     ),
                 },
