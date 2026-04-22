@@ -4,10 +4,22 @@ import re
 
 from app.api.schemas import ChatMessage
 from app.core.exceptions import ProfileBuildError
+from app.core.logging import get_logger
 from app.domain.user_case import UserCaseProfile
+from app.services.openrouter_client import OpenRouterClient
 
 
 class ProfileService:
+    def __init__(self) -> None:
+        self._logger = get_logger(self.__class__.__name__)
+        self._llm_client: OpenRouterClient | None = None
+
+        try:
+            self._llm_client = OpenRouterClient()
+        except Exception as exc:
+            self._logger.warning("OpenRouter client initialization failed: %s", exc)
+            self._llm_client = None
+
     def build_profile(
         self,
         messages: list[ChatMessage],
@@ -18,12 +30,28 @@ class ProfileService:
             raise ProfileBuildError("Cannot build profile without user messages.")
 
         latest_text = "\n".join(user_messages[-2:]) if user_messages else ""
-        current = self._extract_profile_from_text(latest_text)
+        current = self._extract_profile_with_fallback(latest_text)
 
         if previous_profile is not None:
             current = self._merge_with_previous(previous_profile, current)
 
         return self._fill_assumptions(current)
+
+    def _extract_profile_with_fallback(self, text: str) -> UserCaseProfile:
+        if self._llm_client is not None:
+            try:
+                data = self._llm_client.extract_profile(text)
+                self._logger.info("Raw profile extracted via OpenRouter: %s", data)
+                profile = UserCaseProfile(**data)
+                self._logger.info("Profile extracted via OpenRouter.")
+                return profile
+            except Exception as exc:
+                self._logger.warning(
+                    "OpenRouter profile extraction failed, fallback to deterministic parser: %s",
+                    exc,
+                )
+
+        return self._extract_profile_from_text(text)
 
     def _extract_profile_from_text(self, text: str) -> UserCaseProfile:
         lowered = text.lower()
@@ -78,6 +106,8 @@ class ProfileService:
             patterns=[
                 r"input[^0-9]{0,20}(\d[\d\s.,]*)\s*tokens?",
                 r"вход[^0-9]{0,20}(\d[\d\s.,]*)\s*ток",
+                r"(\d[\d\s.,]*)\s*ток\w*\s*(?:на\s*вход|входных?)",
+                r"(?:около|примерно|в среднем)?\s*(\d[\d\s.,]*)\s*ток\w*\s*(?:на\s*вход)?",
             ],
         )
 
@@ -86,6 +116,8 @@ class ProfileService:
             patterns=[
                 r"output[^0-9]{0,20}(\d[\d\s.,]*)\s*tokens?",
                 r"выход[^0-9]{0,20}(\d[\d\s.,]*)\s*ток",
+                r"(\d[\d\s.,]*)\s*ток\w*\s*(?:на\s*выход|выходных?)",
+                r"(?:около|примерно|в среднем)?\s*(\d[\d\s.,]*)\s*ток\w*\s*(?:на\s*выход)?",
             ],
         )
 
@@ -125,6 +157,7 @@ class ProfileService:
             needs_long_context=needs_long_context,
             context_min_tokens=context_min_tokens,
             notes=text.strip() or None,
+            assumptions=["Profile extracted via deterministic fallback parser."],
         )
 
     def _merge_with_previous(
@@ -140,7 +173,9 @@ class ProfileService:
             if value not in (None, "", [], "unknown"):
                 data[key] = value
 
-        return UserCaseProfile(**data)
+        merged = UserCaseProfile(**data)
+        merged.assumptions = list(previous.assumptions) + list(current.assumptions)
+        return merged
 
     def _fill_assumptions(self, profile: UserCaseProfile) -> UserCaseProfile:
         assumptions = list(profile.assumptions)
