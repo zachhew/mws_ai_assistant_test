@@ -31,12 +31,10 @@ class Settings(BaseSettings):
         alias="CATALOG_CACHE_TTL_SECONDS",
     )
 
-    google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
-    google_genai_use_vertexai: bool = Field(
-        default=False,
-        alias="GOOGLE_GENAI_USE_VERTEXAI",
+    default_session_ttl_minutes: int = Field(
+        default=60,
+        alias="DEFAULT_SESSION_TTL_MINUTES",
     )
-    adk_agent_model: str = Field(default="gemini-2.0-flash", alias="ADK_AGENT_MODEL")
 
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
     openrouter_base_url: str = Field(
@@ -48,10 +46,13 @@ class Settings(BaseSettings):
         alias="OPENROUTER_MODEL",
     )
 
-    default_session_ttl_minutes: int = Field(
-        default=60,
-        alias="DEFAULT_SESSION_TTL_MINUTES",
+    adk_litellm_model: str = Field(
+        default="openrouter/openai/gpt-4o-mini",
+        alias="ADK_LITELLM_MODEL",
     )
+    or_api_key: str = Field(default="", alias="OR_API_KEY")
+    or_site_url: str = Field(default="http://localhost:8000", alias="OR_SITE_URL")
+    or_app_name: str = Field(default="mws-ai-assistant-test", alias="OR_APP_NAME")
 
 
 @lru_cache(maxsize=1)
