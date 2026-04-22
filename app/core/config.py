@@ -12,7 +12,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = Field(default="ai-model-selection-assistant", alias="APP_NAME")
+    app_name: str = Field(default="mws-ai-assistant-test", alias="APP_NAME")
     app_host: str = Field(default="0.0.0.0", alias="APP_HOST")
     app_port: int = Field(default=8000, alias="APP_PORT")
     app_env: str = Field(default="dev", alias="APP_ENV")
