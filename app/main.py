@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.error_handlers import register_exception_handlers
 from app.api.routes.chat_completions import router as chat_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -14,6 +15,8 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description="Assistant for selecting MWS GPT Model Hub models via OpenAI-compatible API.",
     )
+
+    register_exception_handlers(app)
 
     @app.get("/health", tags=["service"])
     async def healthcheck() -> dict[str, str]:
