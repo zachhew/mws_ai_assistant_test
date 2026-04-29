@@ -31,11 +31,26 @@ class ProfileService:
 
         latest_text = "\n".join(user_messages[-2:]) if user_messages else ""
         current = self._extract_profile_with_fallback(latest_text)
+        return self.finalize_profile(current, previous_profile)
 
+    def finalize_profile(
+        self,
+        current: UserCaseProfile,
+        previous_profile: UserCaseProfile | None = None,
+    ) -> UserCaseProfile:
         if previous_profile is not None:
             current = self._merge_with_previous(previous_profile, current)
-
         return self._fill_assumptions(current)
+
+    def extract_profile_from_text(self, text: str) -> UserCaseProfile:
+        return self._extract_profile_from_text(text)
+
+    def merge_profiles(
+        self,
+        base_profile: UserCaseProfile,
+        override_profile: UserCaseProfile,
+    ) -> UserCaseProfile:
+        return self._merge_with_previous(base_profile, override_profile)
 
     def _extract_profile_with_fallback(self, text: str) -> UserCaseProfile:
         if self._llm_client is not None:
@@ -106,7 +121,7 @@ class ProfileService:
                 r"input[^0-9]{0,20}(\d[\d\s.,]*)\s*tokens?",
                 r"вход[^0-9]{0,20}(\d[\d\s.,]*)\s*ток",
                 r"(\d[\d\s.,]*)\s*ток\w*\s*(?:на\s*вход|входных?)",
-                r"(?:около|примерно|в среднем)?\s*(\d[\d\s.,]*)\s*ток\w*\s*(?:на\s*вход)?",
+                r"(?:около|примерно|в среднем)?\s*(\d[\d\s.,]*)\s*ток\w*\s*(?:на\s*вход|входных?)",
             ],
         )
 
@@ -116,7 +131,10 @@ class ProfileService:
                 r"output[^0-9]{0,20}(\d[\d\s.,]*)\s*tokens?",
                 r"выход[^0-9]{0,20}(\d[\d\s.,]*)\s*ток",
                 r"(\d[\d\s.,]*)\s*ток\w*\s*(?:на\s*выход|выходных?)",
-                r"(?:около|примерно|в среднем)?\s*(\d[\d\s.,]*)\s*ток\w*\s*(?:на\s*выход)?",
+                (
+                    r"(?:около|примерно|в среднем)?\s*(\d[\d\s.,]*)\s*ток\w*"
+                    r"\s*(?:на\s*выход|выходных?)"
+                ),
             ],
         )
 

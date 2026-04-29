@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
 from openai import OpenAI
-from collections.abc import Iterator
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -45,19 +45,37 @@ class OpenRouterClient:
         Правила:
         1. Не выдумывай числа, если их нет в запросе.
         2. Если пользователь пишет "около", "примерно", "в среднем" — все равно извлекай число.
-        3. Если явно сказано, что нужны изображения, ставь input_modality="text_image" и task_type="multimodal".
-        4. Если явно сказано, что нужны эмбеддинги / embeddings / векторный поиск, ставь task_type="embeddings" и input_modality="text".
+        3. Если явно сказано, что нужны изображения,
+           ставь input_modality="text_image" и task_type="multimodal".
+        4. Если явно сказано, что нужны эмбеддинги / embeddings / векторный поиск,
+           ставь task_type="embeddings" и input_modality="text".
         5. Если пользователь указал число токенов для входа, заполняй expected_input_tokens.
-        6. Если пользователь указал число токенов для ответа/выхода, заполняй expected_output_tokens.
+        6. Если пользователь указал число токенов для ответа/выхода,
+           заполняй expected_output_tokens.
         7. Для embeddings-сценариев expected_output_tokens должен быть 0, если явно не указано иное.
         8. Если поле отсутствует, ставь null.
         9. Ответ должен быть валидным JSON.
         """
+        data = self.extract_structured_json(system_prompt=system_prompt, user_payload=user_text)
+        self._logger.info("OpenRouter profile extraction completed.")
+        return data
+
+    def extract_structured_json(
+        self,
+        *,
+        system_prompt: str,
+        user_payload: str | dict,
+    ) -> dict:
+        user_content = (
+            user_payload
+            if isinstance(user_payload, str)
+            else json.dumps(user_payload, ensure_ascii=False)
+        )
         response = self._client.chat.completions.create(
             model=self._model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_text},
+                {"role": "user", "content": user_content},
             ],
             temperature=0,
             response_format={"type": "json_object"},
@@ -68,7 +86,6 @@ class OpenRouterClient:
         )
 
         content = response.choices[0].message.content or "{}"
-        self._logger.info("OpenRouter profile extraction completed.")
         return json.loads(content)
 
     def generate_explanation(self, prompt: str) -> str:
@@ -82,12 +99,16 @@ class OpenRouterClient:
                         "Отвечай только на русском языке. "
                         "Пиши ясно, кратко и по делу. "
                         "Не выдумывай факты и не противоречь входным данным. "
-                        "Не используй искусственные метки вроде 'модель 1', 'модель 2', 'оценка 95.0'. "
+                        "Не используй искусственные метки вроде "
+                        "'модель 1', 'модель 2', 'оценка 95.0'. "
                         "Названия моделей не переводи. "
-                        "Не используй LaTeX, markdown-математику или математические формулы в специальной нотации. "
+                        "Не используй LaTeX, markdown-математику "
+                        "или математические формулы в специальной нотации. "
                         "Все расчеты записывай обычным текстом."
-                        "Если подходящие модели укладываются в бюджет, не советуй увеличивать бюджет без необходимости. "
-                        "Если ни одна модель не укладывается в бюджет, скажи это прямо и предложи ближайшие технические варианты. "
+                        "Если подходящие модели укладываются в бюджет, "
+                        "не советуй увеличивать бюджет без необходимости. "
+                        "Если ни одна модель не укладывается в бюджет, "
+                        "скажи это прямо и предложи ближайшие технические варианты. "
                         "Финальная рекомендация должна быть конкретной и соответствовать расчетам."
                     ),
                 },
@@ -115,11 +136,15 @@ class OpenRouterClient:
                         "Отвечай только на русском языке. "
                         "Пиши ясно, кратко и по делу. "
                         "Не выдумывай факты и не противоречь входным данным. "
-                        "Не используй LaTeX, markdown-математику или специальные математические обозначения. "
-                        "Не используй искусственные метки вроде 'модель 1', 'модель 2', 'оценка 95.0'. "
+                        "Не используй LaTeX, markdown-математику "
+                        "или специальные математические обозначения. "
+                        "Не используй искусственные метки вроде "
+                        "'модель 1', 'модель 2', 'оценка 95.0'. "
                         "Названия моделей не переводи. "
-                        "Если подходящие модели укладываются в бюджет, не советуй увеличивать бюджет без необходимости. "
-                        "Если ни одна модель не укладывается в бюджет, скажи это прямо и предложи ближайшие технические варианты. "
+                        "Если подходящие модели укладываются в бюджет, "
+                        "не советуй увеличивать бюджет без необходимости. "
+                        "Если ни одна модель не укладывается в бюджет, "
+                        "скажи это прямо и предложи ближайшие технические варианты. "
                         "Финальная рекомендация должна быть конкретной и соответствовать расчетам."
                     ),
                 },

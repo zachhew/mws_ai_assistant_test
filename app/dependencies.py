@@ -11,6 +11,8 @@ from app.services.estimator import CostEstimator
 from app.services.final_answer_streaming_service import FinalAnswerStreamingService
 from app.services.mws_client import MWSClient
 from app.services.mws_parser import MWSParser
+from app.services.mws_recovery_client import MWSRecoveryClient
+from app.services.openrouter_client import OpenRouterClient
 from app.services.profile_service import ProfileService
 from app.services.recommender import ModelRecommender
 from app.services.report_builder import ReportBuilder
@@ -33,6 +35,16 @@ def get_mws_parser() -> MWSParser:
 
 
 @lru_cache(maxsize=1)
+def get_openrouter_client() -> OpenRouterClient:
+    return OpenRouterClient()
+
+
+@lru_cache(maxsize=1)
+def get_mws_recovery_client() -> MWSRecoveryClient:
+    return MWSRecoveryClient(llm_client=get_openrouter_client())
+
+
+@lru_cache(maxsize=1)
 def get_catalog_service() -> CatalogService:
     settings = get_settings()
     return CatalogService(
@@ -40,6 +52,7 @@ def get_catalog_service() -> CatalogService:
         pricing_url=settings.mws_pricing_url,
         client=get_mws_client(),
         parser=get_mws_parser(),
+        recovery_client=get_mws_recovery_client(),
         cache_ttl_seconds=settings.catalog_cache_ttl_seconds,
     )
 

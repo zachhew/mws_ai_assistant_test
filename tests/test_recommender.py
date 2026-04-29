@@ -1,3 +1,4 @@
+from app.agent.workflow_models import RankedModelDecision, RankingAgentOutput
 from app.domain.catalog import CatalogEntry, ModelSpec, PricingSpec
 from app.domain.recommendation import CostEstimate
 from app.domain.user_case import UserCaseProfile
@@ -163,24 +164,52 @@ def test_recommend_prefers_lower_cost_when_models_are_otherwise_equivalent() -> 
     assert recommendations[0].model_name == "cheaper-model"
 
 
-def test_recommend_prefers_coder_model_for_coding_workloads() -> None:
+def test_build_ranking_context_includes_costs_and_candidate_metadata() -> None:
     recommender = ModelRecommender()
-    profile = UserCaseProfile(
-        task_type="coding",
-        input_modality="text",
-        quality_priority="balanced",
+    profile = UserCaseProfile(task_type="chat", input_modality="text")
+    catalog = [make_catalog_entry("model-a", context_window_tokens=64000)]
+    cost_estimates = [make_cost_estimate("model-a", 3200.0, True)]
+
+    ranking_context = recommender.build_ranking_context(profile, catalog, cost_estimates)
+
+    assert ranking_context.profile.task_type == "chat"
+    assert len(ranking_context.options) == 1
+    assert ranking_context.options[0].model_name == "model-a"
+    assert ranking_context.options[0].cost_estimate is not None
+    assert ranking_context.options[0].cost_estimate.total_monthly_cost_rub == 3200.0
+
+
+def test_materialize_recommendations_uses_agent_order_and_rationale() -> None:
+    recommender = ModelRecommender()
+    profile = UserCaseProfile(task_type="chat", input_modality="text")
+    catalog = [
+        make_catalog_entry("model-a"),
+        make_catalog_entry("model-b"),
+    ]
+    cost_estimates = [
+        make_cost_estimate("model-a", 3000.0, True),
+        make_cost_estimate("model-b", 5000.0, True),
+    ]
+    ranking_output = RankingAgentOutput(
+        recommended_models=[
+            RankedModelDecision(
+                model_name="model-b",
+                rationale="Лучше подходит по качеству при приемлемой цене.",
+            ),
+            RankedModelDecision(
+                model_name="model-a",
+                rationale="Более дешевый запасной вариант.",
+            ),
+        ]
     )
 
-    catalog = [
-        make_catalog_entry("general-model"),
-        make_catalog_entry("qwen-coder-model"),
-    ]
+    recommendations = recommender.materialize_recommendations(
+        profile=profile,
+        catalog=catalog,
+        cost_estimates=cost_estimates,
+        ranking_output=ranking_output,
+    )
 
-    cost_estimates = [
-        make_cost_estimate("general-model", 5000.0, True),
-        make_cost_estimate("qwen-coder-model", 7000.0, True),
-    ]
-
-    recommendations = recommender.recommend(profile, catalog, cost_estimates)
-
-    assert recommendations[0].model_name == "qwen-coder-model"
+    assert [item.model_name for item in recommendations] == ["model-b", "model-a"]
+    assert recommendations[0].fit_summary == "Лучше подходит по качеству при приемлемой цене."
+    assert recommendations[0].fit_label == "best_fit"

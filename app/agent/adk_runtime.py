@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from uuid import uuid4
 
-from google.adk.agents import LlmAgent
+from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from app.api.schemas import ChatCompletionRequest, ChatMessage
 from app.agent.session_manager import SessionManager
+from app.agent.workflow_agents import (
+    RecommendationFinalizationAgent,
+    RecommendationPreparationAgent,
+)
+from app.api.schemas import ChatCompletionRequest, ChatMessage
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.domain.recommendation import RecommendationReport
@@ -69,7 +74,8 @@ class AdkRuntimeService:
                 "Ты — AI-ассистент по подбору моделей MWS GPT Model Hub.\n"
                 "Всегда отвечай только на русском языке.\n"
                 "Для нового сценария сначала вызови tool run_model_selection.\n"
-                "Для follow-up вопроса можешь использовать get_last_report, если нужно опереться на предыдущий расчет.\n"
+                "Для follow-up вопроса можешь использовать get_last_report, "
+                "если нужно опереться на предыдущий расчет.\n"
                 "Не выдумывай цены, характеристики моделей, ограничения или расчеты.\n"
                 "Считай результаты tools источником истины.\n"
                 "Не противоречь данным из tools.\n"
@@ -83,22 +89,32 @@ class AdkRuntimeService:
                 "\n"
                 "Требования к формулировкам:\n"
                 "- Пиши ясно, по делу и без лишней воды.\n"
-                "- Не используй формулировки 'модель 1', 'модель 2', 'оценка 95.0' и подобные искусственные метки.\n"
+                "- Не используй формулировки 'модель 1', 'модель 2', 'оценка 95.0' "
+                "и подобные искусственные метки.\n"
                 "- Называй модели по их реальным именам.\n"
                 "- Если модель укладывается в бюджет, так и пиши: 'укладывается в бюджет'.\n"
                 "- Если ни одна модель не укладывается в бюджет, не пиши, что моделей нет вообще.\n"
-                "- В таком случае явно укажи, что в заданный бюджет подходящих моделей нет, но покажи ближайшие технически подходящие варианты.\n"
-                "- Если подходящие модели уже укладываются в бюджет, не советуй увеличивать бюджет без необходимости.\n"
-                "- Практическая рекомендация должна соответствовать расчету, а не быть универсальной заготовкой.\n"
-                "- Для embeddings-сценариев не описывай выходные токены как значимую часть расчета.\n"
-                "- Для multimodal-сценариев подчеркивай поддержку изображений только если это действительно важно для выбора.\n"
-                "- Не используй LaTeX, формулы в \\( \\), markdown-математику или специальные математические обозначения.\n"
-                "- Если нужно показать расчет, пиши его обычным текстом, например: 200000 × 350 = 70000000 токенов.\n"
+                "- В таком случае явно укажи, что в заданный бюджет подходящих моделей "
+                "нет, но покажи ближайшие технически подходящие варианты.\n"
+                "- Если подходящие модели уже укладываются в бюджет, не советуй "
+                "увеличивать бюджет без необходимости.\n"
+                "- Практическая рекомендация должна соответствовать расчету, "
+                "а не быть универсальной заготовкой.\n"
+                "- Для embeddings-сценариев не описывай выходные токены как значимую "
+                "часть расчета.\n"
+                "- Для multimodal-сценариев подчеркивай поддержку изображений только "
+                "если это действительно важно для выбора.\n"
+                "- Не используй LaTeX, формулы в \\( \\), markdown-математику "
+                "или специальные математические обозначения.\n"
+                "- Если нужно показать расчет, пиши его обычным текстом, например: "
+                "200000 × 350 = 70000000 токенов.\n"
                 "\n"
                 "Правила итоговой рекомендации:\n"
                 "- Если есть явный лучший вариант, назови его прямо.\n"
-                "- Если есть более дешевый и более функциональный варианты, кратко объясни компромисс.\n"
-                "- Если все подходящие варианты укладываются в бюджет, рекомендация должна помогать выбрать между ними, а не предлагать повысить бюджет.\n"
+                "- Если есть более дешевый и более функциональный варианты, "
+                "кратко объясни компромисс.\n"
+                "- Если все подходящие варианты укладываются в бюджет, рекомендация "
+                "должна помогать выбрать между ними, а не предлагать повысить бюджет.\n"
             ),
             tools=[run_selection_tool, get_last_report_tool],
         )
@@ -139,37 +155,156 @@ class AdkRuntimeService:
         os.environ["OR_APP_NAME"] = self._settings.or_app_name
 
     def _make_run_selection_tool(self, session_id: str):
-        def run_model_selection(user_request: str) -> dict[str, Any]:
+        async def run_model_selection(user_request: str) -> dict[str, Any]:
             """
-            Выполняет полный детерминированный пайплайн подбора модели:
-            строит профиль сценария, загружает каталог MWS, считает стоимость,
-            подбирает модели и формирует структурированный отчет.
+            Выполняет пайплайн подбора через ADK workflow:
+            profile agent -> deterministic preparation -> ranking agent -> report finalization.
             """
-            state = self._session_manager.get_or_create(session_id)
-
-            profile = self._profile_service.build_profile(
-                messages=[ChatMessage(role="user", content=user_request)],
-                previous_profile=state.last_user_case,
-            )
-
-            full_catalog = self._catalog_service.get_catalog(force_refresh=False)
-            filtered_catalog = self._recommender.filter_catalog(profile, full_catalog)
-            costs = self._estimator.estimate_for_catalog(profile, filtered_catalog)
-            recommendations = self._recommender.recommend(profile, filtered_catalog, costs)
-            report = self._report_builder.build(profile, recommendations, costs)
-
-            self._session_manager.save_artifacts(
-                session_id=session_id,
-                profile=profile,
-                catalog=filtered_catalog,
-                costs=costs,
-                recommendations=recommendations,
-                report=report,
-            )
-
-            return report.model_dump()
+            try:
+                return await self._run_selection_workflow(
+                    session_id=session_id,
+                    user_request=user_request,
+                )
+            except Exception:
+                self._logger.exception(
+                    "Selection workflow failed for session %s, falling back to code path.",
+                    session_id,
+                )
+                return self._run_selection_fallback(
+                    session_id=session_id,
+                    user_request=user_request,
+                )
 
         return run_model_selection
+
+    async def _run_selection_workflow(
+        self,
+        *,
+        session_id: str,
+        user_request: str,
+    ) -> dict[str, Any]:
+        workflow_session_service = InMemorySessionService()
+        workflow_session_id = f"{session_id}:selection:{uuid4().hex}"
+
+        await workflow_session_service.create_session(
+            app_name=self._settings.app_name,
+            user_id="selection-worker",
+            session_id=workflow_session_id,
+            state={
+                "root_session_id": session_id,
+                "raw_user_request": user_request,
+            },
+        )
+
+        workflow_agent = SequentialAgent(
+            name="selection_workflow",
+            sub_agents=[
+                LlmAgent(
+                    name="profile_agent",
+                    model=LiteLlm(model=self._settings.adk_litellm_model),
+                    description="Извлекает структурированный профиль пользовательского сценария.",
+                    instruction=(
+                        "Ты извлекаешь структурированный профиль пользовательского сценария для "
+                        "подбора моделей MWS GPT Model Hub.\n"
+                        "Верни только JSON по схеме.\n"
+                        "Не выдумывай числа, если их нет в запросе.\n"
+                        "Если явно нужны изображения, ставь input_modality='text_image' и "
+                        "task_type='multimodal'.\n"
+                        "Если явно нужны embeddings, ставь task_type='embeddings' и "
+                        "input_modality='text'.\n"
+                        "Если поле отсутствует, оставляй null либо значение по умолчанию схемы.\n"
+                        "assumptions заполняй только тем, что действительно следует из текста.\n"
+                        "Верни только JSON-объект без markdown и пояснений."
+                    ),
+                    output_key="user_profile_json",
+                    generate_content_config=types.GenerateContentConfig(temperature=0),
+                ),
+                RecommendationPreparationAgent(
+                    name="recommendation_preparation_agent",
+                    session_manager=self._session_manager,
+                    profile_service=self._profile_service,
+                    catalog_service=self._catalog_service,
+                    estimator=self._estimator,
+                    recommender=self._recommender,
+                ),
+                LlmAgent(
+                    name="ranking_agent",
+                    model=LiteLlm(model=self._settings.adk_litellm_model),
+                    description="Ранжирует уже подготовленные технически подходящие варианты.",
+                    instruction=(
+                        "Ты ранжируешь готовые варианты моделей для MWS GPT Model Hub.\n"
+                        "Используй только данные из ranking_context_json.\n"
+                        "Не придумывай характеристики, цены или ограничения сверх "
+                        "переданного JSON.\n"
+                        "Выбери до трех моделей в порядке убывания пригодности.\n"
+                        "В rationale кратко объясни компромисс выбора, опираясь на профиль, "
+                        "стоимость и ограничения.\n"
+                        "Если в бюджет ничего не помещается, все равно верни ближайшие "
+                        "технически подходящие варианты.\n"
+                        "Верни только JSON-объект без markdown и пояснений.\n"
+                        "ranking_context_json:\n{ranking_context_json}"
+                    ),
+                    output_key="ranking_output_json",
+                    generate_content_config=types.GenerateContentConfig(temperature=0),
+                ),
+                RecommendationFinalizationAgent(
+                    name="recommendation_finalization_agent",
+                    session_manager=self._session_manager,
+                    recommender=self._recommender,
+                    report_builder=self._report_builder,
+                ),
+            ],
+        )
+
+        workflow_runner = Runner(
+            agent=workflow_agent,
+            app_name=self._settings.app_name,
+            session_service=workflow_session_service,
+        )
+
+        content = types.Content(role="user", parts=[types.Part(text=user_request)])
+
+        async for _ in workflow_runner.run_async(
+            user_id="selection-worker",
+            session_id=workflow_session_id,
+            new_message=content,
+        ):
+            pass
+
+        state = self._session_manager.get(session_id)
+        if state is None or state.last_report is None:
+            raise RuntimeError("Selection workflow finished without report.")
+        return state.last_report.model_dump()
+
+    def _run_selection_fallback(
+        self,
+        *,
+        session_id: str,
+        user_request: str,
+    ) -> dict[str, Any]:
+        state = self._session_manager.get_or_create(session_id)
+
+        profile = self._profile_service.build_profile(
+            messages=[ChatMessage(role="user", content=user_request)],
+            previous_profile=state.last_user_case,
+        )
+
+        full_catalog = self._catalog_service.get_catalog(force_refresh=False)
+        filtered_catalog = self._recommender.filter_catalog(profile, full_catalog)
+        costs = self._estimator.estimate_for_catalog(profile, filtered_catalog)
+        recommendations = self._recommender.recommend(profile, filtered_catalog, costs)
+        report = self._report_builder.build(profile, recommendations, costs)
+
+        self._session_manager.save_artifacts(
+            session_id=session_id,
+            profile=profile,
+            catalog=filtered_catalog,
+            costs=costs,
+            recommendations=recommendations,
+            report=report,
+        )
+
+        return report.model_dump()
 
     def _make_get_last_report_tool(self, session_id: str):
         def get_last_report() -> dict[str, Any] | None:
