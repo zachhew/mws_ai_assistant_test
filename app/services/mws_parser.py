@@ -9,31 +9,21 @@ from app.domain.catalog import ModelSpec, PricingSpec
 
 
 class MWSParser:
-    _MODEL_NAMES: tuple[str, ...] = (
-        "deepseek-r1-distill-qwen-32b",
-        "gemma-3-27b-it",
-        "llama-3.3-70b-instruct",
-        "qwen3-32b",
-        "qwen3-235b-instruct",
-        "qwen3-coder-480b-a35b",
-        "glm-4.6-357b",
-        "kimi-k2-instruct",
-        "bge-multilingual-gemma2",
-        "bge-m3",
-    )
+    _MODEL_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.\-]{2,}$", flags=re.IGNORECASE)
 
     def parse_models_page(self, html: str, source_url: str) -> list[ModelSpec]:
-        text = self._normalize_text(html)
+        rows = self.extract_table_rows(html)
         models: list[ModelSpec] = []
 
-        for name in self._MODEL_NAMES:
-            row = self._extract_model_row(text, name)
-            if row is None:
+        for cells in rows:
+            name = self._extract_model_name(cells)
+            if name is None:
                 continue
 
-            input_modalities, output_modalities = self._extract_modalities(row)
-            context_window_tokens, model_size_label = self._extract_model_numbers(row)
-            is_embedding = "embedding" in [item.lower() for item in output_modalities]
+            row_text = " ".join(cells)
+            input_modalities, output_modalities = self._extract_modalities(row_text)
+            context_window_tokens, model_size_label = self._extract_model_numbers(cells)
+            is_embedding = any(item.lower() == "embedding" for item in output_modalities)
 
             models.append(
                 ModelSpec(
@@ -57,32 +47,22 @@ class MWSParser:
         return models
 
     def parse_pricing_page(self, html: str, source_url: str) -> list[PricingSpec]:
-        text = self._normalize_text(html)
+        rows = self.extract_table_rows(html)
         prices: list[PricingSpec] = []
 
-        for name in self._MODEL_NAMES:
-            row = self._extract_pricing_row(text, name)
-            if row is None:
+        for cells in rows:
+            name = self._extract_model_name(cells)
+            if name is None:
                 continue
 
-            price_values = re.findall(r"(\d+(?:,\d+)?)\s*₽", row)
-            billing_match = re.search(r"(\d+)\s*$", row)
-
-            if billing_match is None:
+            price_values = self._extract_price_values(cells)
+            billing_unit_tokens = self._extract_billing_unit_tokens(cells)
+            if billing_unit_tokens is None or not price_values:
                 continue
 
-            billing_unit_tokens = int(billing_match.group(1))
-
-            if name in {"bge-multilingual-gemma2", "bge-m3"}:
-                if len(price_values) < 2:
-                    continue
-                input_price = self._parse_decimal(price_values[-1])
-                output_price = None
-            else:
-                if len(price_values) < 4:
-                    continue
-                input_price = self._parse_decimal(price_values[-2])
-                output_price = self._parse_decimal(price_values[-1])
+            input_price, output_price = self._extract_io_prices(price_values)
+            if input_price is None:
+                continue
 
             prices.append(
                 PricingSpec(
@@ -99,22 +79,37 @@ class MWSParser:
 
         return prices
 
-    def _extract_model_row(self, text: str, name: str) -> str | None:
-        pattern = rf"{re.escape(name)}(.*?)(?={'|'.join(re.escape(item) for item in self._MODEL_NAMES if item != name)}|В таблице:|Последнее обновление:|$)"
-        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
-        if not match:
-            return None
-        return f"{name} {match.group(1)}".strip()
+    def extract_table_rows(self, html: str) -> list[list[str]]:
+        soup = BeautifulSoup(html, "lxml")
+        rows: list[list[str]] = []
 
-    def _extract_pricing_row(self, text: str, name: str) -> str | None:
-        pattern = rf"{re.escape(name)}(.*?)(?={'|'.join(re.escape(item) for item in self._MODEL_NAMES if item != name)}|Последнее обновление:|$)"
-        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
-        if not match:
-            return None
-        return f"{name} {match.group(1)}".strip()
+        for tr in soup.find_all("tr"):
+            cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["td", "th"])]
+            normalized_cells: list[str] = []
+            for cell in cells:
+                normalized = self._normalize_cell(cell)
+                if normalized:
+                    normalized_cells.append(normalized)
+            if normalized_cells:
+                rows.append(normalized_cells)
 
-    def _extract_modalities(self, row: str) -> tuple[list[str], list[str]]:
-        lowered = row.lower()
+        return rows
+
+    def _extract_model_name(self, cells: list[str]) -> str | None:
+        if not cells:
+            return None
+
+        candidate = cells[0].strip().lower()
+        if not self._MODEL_NAME_PATTERN.match(candidate):
+            return None
+
+        if candidate in {"model", "модель", "name", "название"}:
+            return None
+
+        return candidate
+
+    def _extract_modalities(self, row_text: str) -> tuple[list[str], list[str]]:
+        lowered = row_text.lower()
 
         input_modalities: list[str] = []
         if "text" in lowered:
@@ -122,7 +117,6 @@ class MWSParser:
         if "image" in lowered:
             input_modalities.append("image")
 
-        output_modalities: list[str]
         if "embedding" in lowered:
             output_modalities = ["embedding"]
         else:
@@ -130,21 +124,51 @@ class MWSParser:
 
         return input_modalities, output_modalities
 
-    def _extract_model_numbers(self, row: str) -> tuple[int | None, str | None]:
-        number_matches = re.findall(r"(\d+(?:\.\d+)?)", row)
-        if len(number_matches) < 2:
+    def _extract_model_numbers(self, cells: list[str]) -> tuple[int | None, str | None]:
+        numeric_values: list[str] = []
+
+        for cell in cells[1:]:
+            if "₽" in cell:
+                continue
+            numeric_values.extend(re.findall(r"\d+(?:\.\d+)?", cell))
+
+        if len(numeric_values) < 2:
             return None, None
 
-        context_k = number_matches[-2]
-        size_label = number_matches[-1]
+        context_window_tokens = int(float(numeric_values[-2]) * 1000)
+        model_size_label = numeric_values[-1]
+        return context_window_tokens, model_size_label
 
-        context_window_tokens = int(float(context_k) * 1000)
-        return context_window_tokens, size_label
+    def _extract_price_values(self, cells: list[str]) -> list[float]:
+        prices: list[float] = []
 
-    def _normalize_text(self, html: str) -> str:
-        soup = BeautifulSoup(html, "lxml")
-        text = soup.get_text(separator=" ", strip=True)
-        return re.sub(r"\s+", " ", text)
+        for cell in cells[1:]:
+            matches = re.findall(r"(\d+(?:,\d+)?)\s*₽", cell)
+            prices.extend(self._parse_decimal(value) for value in matches)
+
+        return prices
+
+    def _extract_billing_unit_tokens(self, cells: list[str]) -> int | None:
+        for cell in reversed(cells[1:]):
+            match = re.fullmatch(r"\d+", cell.replace(" ", ""))
+            if match is not None:
+                return int(match.group(0))
+        return None
+
+    def _extract_io_prices(
+        self,
+        price_values: list[float],
+    ) -> tuple[float | None, float | None]:
+        if len(price_values) >= 4:
+            return price_values[-2], price_values[-1]
+        if len(price_values) >= 2:
+            return price_values[-1], None
+        if len(price_values) == 1:
+            return price_values[0], None
+        return None, None
+
+    def _normalize_cell(self, value: str) -> str:
+        return re.sub(r"\s+", " ", value).strip()
 
     def _parse_decimal(self, value: str) -> float:
         return float(value.replace(",", ".").strip())

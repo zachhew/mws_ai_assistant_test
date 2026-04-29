@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from hashlib import sha256
 from time import monotonic
-from typing import Callable
 
 from app.core.exceptions import CatalogBuildError
 from app.core.logging import get_logger
 from app.domain.catalog import CatalogEntry, ModelSpec, PricingSpec
 from app.services.mws_client import MWSClient
 from app.services.mws_parser import MWSParser
+from app.services.mws_recovery_client import MWSRecoveryClient
 
 
 @dataclass(slots=True)
@@ -26,6 +27,7 @@ class CatalogService:
         pricing_url: str,
         client: MWSClient,
         parser: MWSParser,
+        recovery_client: MWSRecoveryClient | None = None,
         cache_ttl_seconds: int = 900,
         time_provider: Callable[[], float] | None = None,
     ) -> None:
@@ -33,6 +35,7 @@ class CatalogService:
         self._pricing_url = pricing_url
         self._client = client
         self._parser = parser
+        self._recovery_client = recovery_client
         self._cache_ttl_seconds = max(cache_ttl_seconds, 0)
         self._time_provider = time_provider or monotonic
         self._logger = get_logger(self.__class__.__name__)
@@ -65,8 +68,8 @@ class CatalogService:
 
         self._logger.info("Building catalog from MWS source pages.")
 
-        models = self._parser.parse_models_page(models_html, self._models_url)
-        pricing = self._parser.parse_pricing_page(pricing_html, self._pricing_url)
+        models = self._parse_models_with_recovery(models_html)
+        pricing = self._parse_pricing_with_recovery(pricing_html)
 
         catalog = self._build_catalog(models=models, prices=pricing)
 
@@ -77,6 +80,26 @@ class CatalogService:
         )
         self._logger.info("Catalog built successfully. entries=%s", len(catalog))
         return catalog
+
+    def _parse_models_with_recovery(self, html: str) -> list[ModelSpec]:
+        try:
+            return self._parser.parse_models_page(html, self._models_url)
+        except Exception:
+            if self._recovery_client is None:
+                raise
+            self._logger.exception("Deterministic model parsing failed, attempting LLM recovery.")
+            rows = self._parser.extract_table_rows(html)
+            return self._recovery_client.recover_models(rows, self._models_url)
+
+    def _parse_pricing_with_recovery(self, html: str) -> list[PricingSpec]:
+        try:
+            return self._parser.parse_pricing_page(html, self._pricing_url)
+        except Exception:
+            if self._recovery_client is None:
+                raise
+            self._logger.exception("Deterministic pricing parsing failed, attempting LLM recovery.")
+            rows = self._parser.extract_table_rows(html)
+            return self._recovery_client.recover_pricing(rows, self._pricing_url)
 
     def _build_catalog(
         self,

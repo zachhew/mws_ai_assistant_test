@@ -62,6 +62,57 @@ class StubParser:
             )
         ]
 
+    def extract_table_rows(self, html: str) -> list[list[str]]:
+        return [[html.strip()]]
+
+
+class FailingParser(StubParser):
+    def parse_models_page(self, html: str, source_url: str) -> list[ModelSpec]:
+        self.models_parse_calls += 1
+        raise ValueError("models parse failed")
+
+    def parse_pricing_page(self, html: str, source_url: str) -> list[PricingSpec]:
+        self.pricing_parse_calls += 1
+        raise ValueError("pricing parse failed")
+
+
+class StubRecoveryClient:
+    def __init__(self) -> None:
+        self.model_recovery_calls = 0
+        self.pricing_recovery_calls = 0
+
+    def recover_models(self, rows: list[list[str]], source_url: str) -> list[ModelSpec]:
+        self.model_recovery_calls += 1
+        assert rows == [["model-v2"]]
+        return [
+            ModelSpec(
+                name="recovered-model",
+                input_modalities=["text"],
+                output_modalities=["text"],
+                context_window_tokens=64000,
+                model_size_label="16",
+                family="unknown",
+                supports_text_input=True,
+                supports_image_input=False,
+                supports_text_output=True,
+                is_embedding_model=False,
+                source_url=source_url,
+            )
+        ]
+
+    def recover_pricing(self, rows: list[list[str]], source_url: str) -> list[PricingSpec]:
+        self.pricing_recovery_calls += 1
+        assert rows == [["pricing-v2"]]
+        return [
+            PricingSpec(
+                model_name="recovered-model",
+                input_price_per_1k_tokens_rub=2.5,
+                output_price_per_1k_tokens_rub=3.5,
+                billing_unit_tokens=1000,
+                source_url=source_url,
+            )
+        ]
+
 
 def test_catalog_service_reuses_cached_catalog_for_unchanged_pages() -> None:
     clock = MutableClock()
@@ -91,7 +142,8 @@ def test_catalog_service_reuses_cached_catalog_for_unchanged_pages() -> None:
     assert parser.pricing_parse_calls == 1
 
 
-def test_catalog_service_revalidates_without_rebuild_when_ttl_expires_but_source_is_unchanged() -> None:
+def test_catalog_service_revalidates_without_rebuild_when_ttl_expires_but_source_is_unchanged(
+) -> None:
     clock = MutableClock()
     client = StubMWSClient(
         {
@@ -148,3 +200,33 @@ def test_catalog_service_rebuilds_catalog_when_source_pages_change_after_ttl() -
     assert client.calls["pricing"] == 2
     assert parser.models_parse_calls == 2
     assert parser.pricing_parse_calls == 2
+
+
+def test_catalog_service_uses_llm_recovery_when_deterministic_parser_fails() -> None:
+    clock = MutableClock()
+    client = StubMWSClient(
+        {
+            "models": ["model-v2"],
+            "pricing": ["pricing-v2"],
+        }
+    )
+    parser = FailingParser()
+    recovery_client = StubRecoveryClient()
+    service = CatalogService(
+        models_url="models",
+        pricing_url="pricing",
+        client=client,
+        parser=parser,
+        recovery_client=recovery_client,
+        cache_ttl_seconds=60,
+        time_provider=clock,
+    )
+
+    catalog = service.get_catalog()
+
+    assert len(catalog) == 1
+    assert catalog[0].model.name == "recovered-model"
+    assert catalog[0].pricing is not None
+    assert catalog[0].pricing.input_price_per_1k_tokens_rub == 2.5
+    assert recovery_client.model_recovery_calls == 1
+    assert recovery_client.pricing_recovery_calls == 1
