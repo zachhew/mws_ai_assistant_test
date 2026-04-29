@@ -138,3 +138,49 @@ def test_recommend_uses_alternative_labels_if_nothing_fits_budget() -> None:
     assert recommendations[0].fit_label == "best_fit"
     assert recommendations[1].fit_label == "alternative"
     assert recommendations[2].fit_label == "alternative"
+
+
+def test_recommend_prefers_lower_cost_when_models_are_otherwise_equivalent() -> None:
+    recommender = ModelRecommender()
+    profile = UserCaseProfile(
+        task_type="chat",
+        input_modality="text",
+        quality_priority="balanced",
+    )
+
+    catalog = [
+        make_catalog_entry("cheaper-model"),
+        make_catalog_entry("expensive-model"),
+    ]
+
+    cost_estimates = [
+        make_cost_estimate("cheaper-model", 4000.0, True),
+        make_cost_estimate("expensive-model", 12000.0, True),
+    ]
+
+    recommendations = recommender.recommend(profile, catalog, cost_estimates)
+
+    assert recommendations[0].model_name == "cheaper-model"
+
+
+def test_recommend_prefers_coder_model_for_coding_workloads() -> None:
+    recommender = ModelRecommender()
+    profile = UserCaseProfile(
+        task_type="coding",
+        input_modality="text",
+        quality_priority="balanced",
+    )
+
+    catalog = [
+        make_catalog_entry("general-model"),
+        make_catalog_entry("qwen-coder-model"),
+    ]
+
+    cost_estimates = [
+        make_cost_estimate("general-model", 5000.0, True),
+        make_cost_estimate("qwen-coder-model", 7000.0, True),
+    ]
+
+    recommendations = recommender.recommend(profile, catalog, cost_estimates)
+
+    assert recommendations[0].model_name == "qwen-coder-model"

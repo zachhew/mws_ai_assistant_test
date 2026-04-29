@@ -40,6 +40,7 @@ def get_catalog_service() -> CatalogService:
         pricing_url=settings.mws_pricing_url,
         client=get_mws_client(),
         parser=get_mws_parser(),
+        cache_ttl_seconds=settings.catalog_cache_ttl_seconds,
     )
 
 
